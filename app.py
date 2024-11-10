@@ -319,7 +319,7 @@ def suggest_dates():
                         receiver_email_a = next((u.get('email') for u in user_list if u['user_id'] == user_a['user_id']), None)
                         receiver_email_b = next((u.get('email') for u in user_list if u['user_id'] == user_b['user_id']), None)
 
-                        password = "mxqy tobh vxjb tvfa"
+                        password = ""
                         
                         subject = "You have a new date match!"
                         body = "Please check Bientot. A new date is waiting for you!"
