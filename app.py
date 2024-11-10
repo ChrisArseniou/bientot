@@ -10,6 +10,7 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 import time
+from functions import send_email
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -42,12 +43,10 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 
-
 # Health Check Endpoint
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'success', 'message': 'Server is up and running!'}), 200
-
 
 
 # 1. User Authorization (Sign-up / Login) - tested
@@ -172,96 +171,7 @@ def delete_user(user_id):
         return jsonify({'error': str(e)}), 500
 
 
-# another way to do the backround service
-# def suggest_dates():
-#     while True:
-#         users = db.collection(USERS_COLLECTION).stream()
-
-#         #if(len(users == 0)):
-#         #    return
-        
-#         user_list = [user.to_dict() for user in users]
-
-#         dates_ref = db.collection(DATES_COLLECTION).stream()
-        
-#         dates_list = [date.to_dict() for date in dates_ref]
-
-#         if len(user_list) > 1:
-             
-#              for user_a in user_list:
-#                  for user_b in user_list:
-                     
-#                     if(user_a['user_id'] == user_b['user_id'] ):
-#                          continue
-            
-#                     if user_a['user_id'] != user_b['user_id']:
-#                         date_suggestion = {
-#                             'date_id' : generate_id(),
-#                             'user_a_id': user_a['user_id'],
-#                             'user_b_id': user_b['user_id'],
-#                             'status': 'suggested',
-#                             'timestamp': firestore.SERVER_TIMESTAMP
-#                         }
-
-#                         exists = any(
-#                             date.get('user_a_id') == date_suggestion['user_a_id'] and
-#                             date.get('user_b_id') == date_suggestion['user_b_id']
-#                             for date in dates_list
-#                         )
-
-#                         if(not exists):
-#                             db.collection(DATES_COLLECTION).add(date_suggestion)
-        
-#         time.sleep(21600)  # Run every 6 hours seconds
-
-# threading.Thread(target=suggest_dates, daemon=True).start()
-
-# Define the background task
-def suggest_dates():
-    users = db.collection(USERS_COLLECTION).stream()
-    user_list = [user.to_dict() for user in users]
-
-    dates_ref = db.collection(DATES_COLLECTION).stream()
-    dates_list = [date.to_dict() for date in dates_ref]
-
-    if len(user_list) > 1:
-        for user_a in user_list:
-            for user_b in user_list:
-                if user_a['user_id'] == user_b['user_id']:
-                    continue
-                if user_a['user_id'] != user_b['user_id']:
-                    date_suggestion = {
-                        'date_id': generate_id(),
-                        'user_a_id': user_a['user_id'],
-                        'user_b_id': user_b['user_id'],
-                        'status': 'suggested',
-                        'timestamp': firestore.SERVER_TIMESTAMP
-                    }
-
-                    exists = any(
-                        date.get('user_a_id') == date_suggestion['user_a_id'] and
-                        date.get('user_b_id') == date_suggestion['user_b_id']
-                        for date in dates_list
-                    )
-
-                    if not exists:
-                        db.collection(DATES_COLLECTION).add(date_suggestion)
-
-# Initialize APScheduler
-scheduler = BackgroundScheduler()
-scheduler.add_job(suggest_dates, 'interval', hours=2)  # Run every 2 hours
-
-# Start the scheduler
-scheduler.start()
-
-# Gracefully shut down the scheduler when the app exits
-def shutdown_scheduler():
-    scheduler.shutdown()
-
-
-
 # 4. CRUD for Suggested Dates 
-
 @app.route('/dates/suggested/<sugested_date_id>', methods=['GET'])
 def get_date(sugested_date_id):
     try:
@@ -295,7 +205,6 @@ def delete_date(sugested_date_id):
     
 # 5. Functionality for Accepted/Declined Dates 
 # The idea here is that when a used decides to continue with a date, we change the status to accepted, and when the user declines a date we change the status to decline
-
 # Accept a Suggested Date (Change status to "accepted")
 @app.route('/dates/accept/<date_id>', methods=['POST'])
 def accept_suggested_date(date_id):
@@ -373,7 +282,107 @@ def get_dates_by_user_id(user_id):
     
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+    
 
+# 6. Define the background task
+def suggest_dates():
+    users = db.collection(USERS_COLLECTION).stream()
+    user_list = [user.to_dict() for user in users]
+
+    dates_ref = db.collection(DATES_COLLECTION).stream()
+    dates_list = [date.to_dict() for date in dates_ref]
+
+    if len(user_list) > 1:
+        for user_a in user_list:
+            for user_b in user_list:
+                if user_a['user_id'] == user_b['user_id']:
+                    continue
+                if user_a['user_id'] != user_b['user_id']:
+                    date_suggestion = {
+                        'date_id': generate_id(),
+                        'user_a_id': user_a['user_id'],
+                        'user_b_id': user_b['user_id'],
+                        'status': 'suggested',
+                        'timestamp': firestore.SERVER_TIMESTAMP
+                    }
+
+                    exists = any(
+                        date.get('user_a_id') == date_suggestion['user_a_id'] and
+                        date.get('user_b_id') == date_suggestion['user_b_id']
+                        for date in dates_list
+                    )
+
+                    if not exists:
+                        sender_email = "chris0arseniou@gmail.com"
+
+                        receiver_email = "chris951159@gmail.com"
+                        receiver_email_a = next((u.get('email') for u in user_list if u['user_id'] == user_a['user_id']), None)
+                        receiver_email_b = next((u.get('email') for u in user_list if u['user_id'] == user_b['user_id']), None)
+
+                        password = "mxqy tobh vxjb tvfa"
+                        
+                        subject = "You have a new date match!"
+                        body = "Please check Bientot. A new date is waiting for you!"
+
+                        send_email(sender_email, receiver_email, subject, body, password)
+                        #send_email(sender_email, receiver_email_a, subject, body, password)
+                        #send_email(sender_email, receiver_email_b, subject, body, password)
+                        db.collection(DATES_COLLECTION).add(date_suggestion)
+
+# Initialize APScheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(suggest_dates, 'interval', seconds=10)  # Run every 2 hours
+
+# Start the scheduler
+scheduler.start()
+
+# Gracefully shut down the scheduler when the app exits
+def shutdown_scheduler():
+    scheduler.shutdown()
+
+# another way to do the backround service
+# def suggest_dates():
+#     while True:
+#         users = db.collection(USERS_COLLECTION).stream()
+
+#         #if(len(users == 0)):
+#         #    return
+        
+#         user_list = [user.to_dict() for user in users]
+
+#         dates_ref = db.collection(DATES_COLLECTION).stream()
+        
+#         dates_list = [date.to_dict() for date in dates_ref]
+
+#         if len(user_list) > 1:
+             
+#              for user_a in user_list:
+#                  for user_b in user_list:
+                     
+#                     if(user_a['user_id'] == user_b['user_id'] ):
+#                          continue
+            
+#                     if user_a['user_id'] != user_b['user_id']:
+#                         date_suggestion = {
+#                             'date_id' : generate_id(),
+#                             'user_a_id': user_a['user_id'],
+#                             'user_b_id': user_b['user_id'],
+#                             'status': 'suggested',
+#                             'timestamp': firestore.SERVER_TIMESTAMP
+#                         }
+
+#                         exists = any(
+#                             date.get('user_a_id') == date_suggestion['user_a_id'] and
+#                             date.get('user_b_id') == date_suggestion['user_b_id']
+#                             for date in dates_list
+#                         )
+
+#                         if(not exists):
+#                             db.collection(DATES_COLLECTION).add(date_suggestion)
+        
+#         time.sleep(21600)  # Run every 6 hours seconds
+
+# threading.Thread(target=suggest_dates, daemon=True).start()
 
 if __name__ == '__main__':
     try:
