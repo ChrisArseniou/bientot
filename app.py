@@ -1,26 +1,44 @@
 from queue import Full
 from flask import Flask, request, jsonify
 import firebase_admin
-from firebase_admin import credentials, firestore, auth
-import threading
+from firebase_admin import credentials, firestore, auth, storage
+import threading 
 import random
 import time
+from werkzeug.utils import secure_filename
+import os
 
 # Initialize Flask app
 app = Flask(__name__)
 
 # Initialize Firebase
 cred = credentials.Certificate('firebase_adminsdk.json')
-firebase_admin.initialize_app(cred)
+#firebase_admin.initialize_app(cred)
+
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'test'  # Firebase Storage bucket
+})
+
 db = firestore.client()
+bucket = storage.bucket()
 
 # Firestore collections
 USERS_COLLECTION = 'users'
 DATES_COLLECTION = 'dates'
 
+# Folder where photos will be stored temporarily before uploading
+app.config['UPLOAD_FOLDER'] = 'uploads/'
+app.config['ALLOWED_EXTENSIONS'] = {'jpg', 'jpeg', 'png', 'gif'}
+
 # Helper function to generate a unique ID
 def generate_id():
     return firestore.client().collection(USERS_COLLECTION).document().id
+
+# Check if file has a valid extension
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+
 
 # Health Check Endpoint
 @app.route('/health', methods=['GET'])
@@ -35,14 +53,21 @@ def signup():
     data = request.json
     email = data.get('email')
     password = data.get('password')
-    name = data.get('name')
+    if('name' in data.keys()):
+        name = data.get('name')
+    else :
+        name = ''
 
-    if not email or not password or not name:
+    if not email or not password:
         return jsonify({'error': 'Missing email, password, or name'}), 400
 
     try:
         # Create a new Firebase Authentication user
-        user = auth.create_user(email=email, password=password, display_name=name)
+        if(name != ''):
+            user = auth.create_user(email=email, password=password, display_name=name)
+        else :
+            user = auth.create_user(email=email, password=password)
+
         user_data = {
             'user_id': user.uid,
             'name': name,
@@ -89,12 +114,50 @@ def get_user(user_id):
 
 @app.route('/users/<user_id>', methods=['PUT'])
 def update_user(user_id):
-    data = request.json
+    # Initialize an empty list for photo URLs
+    photo_urls = []
+
+    # Check if the request contains files (photos)
+    if 'photos' in request.files:
+        photos = request.files.getlist('photos')  # Get list of photos uploaded
+        
+        for photo in photos:
+            if photo and allowed_file(photo.filename):
+                # Secure the filename and save temporarily
+                filename = secure_filename(photo.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                photo.save(filepath)
+                
+                # Upload the file to Firebase Storage
+                blob = bucket.blob(f'users_photos/{filename}')
+                blob.upload_from_filename(filepath)
+                
+                # Make the file publicly accessible
+                blob.make_public()
+                
+                # Get the URL of the uploaded photo
+                photo_url = blob.public_url
+                photo_urls.append(photo_url)
+                
+                # Clean up the temporary file after upload
+                os.remove(filepath)
+            else:
+                return jsonify({'error': 'Invalid photo format. Only jpg, jpeg, png, gif are allowed.'}), 400
+    
+    # Now handle the JSON data from the form
+    data = request.form.to_dict()  # Collect regular form data (text data)
+
+    # If there are any photos, add the list of URLs to the user data
+    if photo_urls:
+        data['photo_urls'] = photo_urls
+
     try:
+        # Update the user in Firestore with new data (including the photo URLs if provided)
         db.collection(USERS_COLLECTION).document(user_id).update(data)
         return jsonify({'message': 'User updated successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/users/<user_id>', methods=['DELETE'])
@@ -248,8 +311,6 @@ def get_dates_by_user_id(user_id):
     
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
-
 
 
 if __name__ == '__main__':
