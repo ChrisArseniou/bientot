@@ -51,6 +51,7 @@ def signup():
             'age': None,
             'gender': '',
             'interests': [],
+            'preferences': [],
             'created_at': firestore.SERVER_TIMESTAMP,
         }
         db.collection(USERS_COLLECTION).document(user.uid).set(user_data)
@@ -247,12 +248,6 @@ def get_dates_by_user_id(user_id):
     
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
-
-
-
-
-
 
 
 
